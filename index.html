@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NextStep AI</title>
+<meta name="description" content="NextStep AI منصة ذكاء اصطناعي بتساعد طلاب المدارس والجامعات والخريجين الجدد في مصر يلاقوا منح دراسية وفرص تدريب ووظايف مناسبة ليهم، مع مساعد ذكي يقدملهم نصايح مهنية شخصية.">
+<meta property="og:title" content="NextStep AI">
+<meta property="og:description" content="منصة ذكاء اصطناعي لمساعدة طلاب مصر في إيجاد المنح والفرص المناسبة لهم">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&family=Montserrat:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/jspdf@4.2.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="center-screen"><div class="spinner"></div></div>
+</div>
+
+<script>
+// Outer boot watchdog — lives OUTSIDE the module script on purpose.
+// If the module script (app.js) fails entirely to load or initialize
+// (e.g. a CDN is blocked by the network/firewall), the code inside the
+// module never runs, so its own internal safety-timeout never fires either.
+// This independent watchdog guarantees the user is never stuck on the
+// spinner forever, no matter what fails.
+window.__appBooted = false;
+setTimeout(function(){
+  if(!window.__appBooted){
+    var appEl = document.getElementById('app');
+    if(appEl){
+      appEl.innerHTML = '<div class="center-screen"><div class="card" style="max-width:420px;padding:28px;text-align:center;">' +
+        '<p style="font-weight:800;font-size:16px;margin-bottom:10px;">تعذّر تحميل الموقع</p>' +
+        '<p style="color:#5C7278;font-size:14px;margin-bottom:18px;">تأكد من اتصال الإنترنت وإن حاجة زي إعدادات الشبكة أو الـ Ad-blocker مش بتمنع الوصول لخدمات Google، وبعدين جرّب تحدّث الصفحة.</p>' +
+        '<button onclick="location.reload()" style="border:none;border-radius:10px;padding:12px 22px;background:#164B58;color:#fff;font-weight:700;cursor:pointer;font-family:inherit;">تحديث الصفحة</button></div></div>';
+    }
+  }
+}, 15000);
+</script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
