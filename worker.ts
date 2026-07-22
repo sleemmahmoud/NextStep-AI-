@@ -1,11 +1,6 @@
 // نسخة Deno Deploy من نفس البروكسي بتاع Cloudflare — بديل مجاني تمامًا وبدون
 // بطاقة بنكية خالص. الكود بنفس المنطق بالظبط (CORS + حد يومي لكل UID + تمرير
-// لـGemini)، بس بيستخدم Deno KV بدل Cloudflare KV (KV هنا جاهز تلقائيًا من غير
-// أي إعداد إضافي في الداشبورد — ميزة أبسط من Cloudflare في النقطة دي بالظبط).
-//
-// ✨ إضافة جديدة: البحث التلقائي بقى يشتغل من هنا (Deno.cron) مرة كل يوم فعليًا
-// من غير ما حد يفتح الداشبورد خالص، وبيكتب في Firestore مباشرة كـ"سيرفر" باستخدام
-// Service Account — مش محتاج يوزر مسجل دخول زي المتصفح.
+// لـGemini)، بس بيستخدم Deno KV بدل Cloudflare KV.
 
 // غيّر الدومين ده لو موقعك على دومين تاني
 const ALLOWED_ORIGIN = "https://sleemmahmoud.github.io";
@@ -15,31 +10,18 @@ const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
-// رجّعناه لـgemini-3.5-flash: gemini-3.6-flash طلع مش شغال على الفري تير (باقي بيطلب فوترة)،
-// أما 3.5 Flash فلسه رسميًا من موديلات الفري تير المجانية.
 const GEMINI_MODEL = "gemini-3.5-flash";
 const FIREBASE_PROJECT_ID = Deno.env.get("FIREBASE_PROJECT_ID") ?? "nextstep-ai-bf090";
-// لازم تفضل مطابقة تمامًا لمصفوفة TAGS في app.js
 const TAGS = ["برمجة", "تصميم", "ريادة أعمال", "تسويق رقمي", "لغات", "علوم", "هندسة", "قيادة وتطوع", "فنون وإعلام", "أعمال وتمويل", "رياضة", "مهارات تواصل"];
 
 const kv = await Deno.openKv();
 
 // ============================================================
-// الجزء الأول: البروكسي العادي (شات + بحث يدوي من الأدمن) — زي ما هو بالظبط
+// الجزء الأول: إدارة الكوتا والصلاحيات
 // ============================================================
 
-// لازم يفضل مطابق تمامًا لمصفوفة ADMIN_EMAILS في app.js
 const ADMIN_EMAILS = ["sleemmahmoud81@gmail.com", "nextstepai010@gmail.com", "mhmwdshhath468@gmail.com"];
 
-// كل ميزة بتستخدم الـAI ليها عداد يومي منفصل تمامًا عن باقي الميزات، عشان
-// ميزة زي "تصنيف الفرص القديمة" أو "تنظيف الفرص الوهمية" ما تاكلش من كوتا
-// المساعد الذكي أو العكس. ده اللي كان بيخلي النظام مستقر زمان.
-// - chat: المساعد الذكي (شات) — نفس الحد للمستخدم العادي والأدمن.
-// - search: أدوات الأدمن اللي بتستخدم AI (البحث اليدوي عن فرص + تصنيف
-//   الفرص القديمة تلقائيًا + كشف وحذف الفرص المكررة/الوهمية) — كلهم بيشتركوا
-//   في نفس العداد ده عشان هما استخدام واحد منطقيًا (أدوات الأدمن)، لكنه
-//   منفصل تمامًا عن عداد الشات.
-// - cv: توليد الـCV (تصميم مميز + ATS مع بعض) — منفصل عن الشات والبحث.
 const FEATURE_LIMITS: Record<string, { user: number; admin: number }> = {
   chat: { user: 5, admin: 5 },
   search: { user: 5, admin: 8 },
@@ -61,8 +43,8 @@ async function checkQuota(uid: string | undefined, email: string | undefined, fe
   const feat = (feature && FEATURE_LIMITS[feature]) ? feature : DEFAULT_FEATURE;
   const isAdminUser = !!(email && ADMIN_EMAILS.includes(email));
   const limit = isAdminUser ? FEATURE_LIMITS[feat].admin : FEATURE_LIMITS[feat].user;
-  // الأدمن بيتعدّ بالإيميل نفسه (مش الـuid) عشان لو دخل من أكتر من جهاز يفضل نفس العداد
   const idKey = isAdminUser ? `admin:${email}` : uid;
+  
   if (!idKey) {
     return { allowed: false, configError: "الطلب وصل من غير uid — تأكد إن app.js بيبعت uid مع كل طلب." };
   }
@@ -73,10 +55,7 @@ async function checkQuota(uid: string | undefined, email: string | undefined, fe
   return { allowed: true, limit, feat, idKey, key, current };
 }
 
-// بتزوّد العداد فعليًا — بنستدعيها بس بعد ما ريكوست Gemini يرجع بنجاح، عشان لو
-// فشل الطلب (شبكة، خطأ من Google، إلخ) الكوتا ما تتاكلش من غير فايدة.
 async function consumeQuota(key: Deno.KvKey, current: number) {
-  // انتهاء صلاحية بعد 30 ساعة عشان المفتاح يختفي لوحده بعد ما اليوم يخلص
   await kv.set(key, current + 1, { expireIn: 1000 * 60 * 60 * 30 });
 }
 
@@ -87,6 +66,7 @@ function quotaExceededResponse(message: string) {
   });
 }
 
+// دالة الاتصال بـ Gemini بعد الحذف الصريح لأي حقول إضافية
 async function callGemini(geminiBody: unknown) {
   const apiKey = Deno.env.get("GEMINI_API_KEY");
   const res = await fetch(
@@ -104,8 +84,7 @@ async function callGemini(geminiBody: unknown) {
 }
 
 // ============================================================
-// الجزء الثاني: أدوات التوثيق مع Google (Service Account) عشان الكتابة
-// في Firestore من غير يوزر مسجل دخول — ده اللي بيخلي الـcron يشتغل لوحده
+// الجزء الثاني: التوثيق والتعامل مع Firestore (Service Account)
 // ============================================================
 
 let cachedToken: { token: string; expiresAt: number } | null = null;
@@ -128,8 +107,6 @@ function pemToArrayBuffer(pem: string): ArrayBuffer {
   return buf.buffer;
 }
 
-// بيرجع access token صالح للاستخدام مع Firestore REST API، وبيكاشه في الذاكرة
-// عشان مايعملش JWT جديد مع كل ريكوست (التوكن صالح لمدة ساعة).
 async function getGoogleAccessToken(): Promise<string> {
   if (cachedToken && cachedToken.expiresAt - 60_000 > Date.now()) {
     return cachedToken.token;
@@ -181,10 +158,6 @@ async function getGoogleAccessToken(): Promise<string> {
   return cachedToken.token;
 }
 
-// ============================================================
-// الجزء الثالث: تحويل JS objects لصيغة Firestore REST API
-// ============================================================
-
 // deno-lint-ignore no-explicit-any
 function toFirestoreValue(v: any): any {
   if (v === null || v === undefined) return { nullValue: null };
@@ -224,7 +197,7 @@ async function firestoreLinkExists(link: string, token: string, collectionId = "
       }),
     },
   );
-  if (!res.ok) return false; // في شك، منمنعش الإضافة عشان نتيجة بحث ماتضيعش
+  if (!res.ok) return false;
   const data = await res.json();
   return Array.isArray(data) && data.some((r: Record<string, unknown>) => r.document);
 }
@@ -257,7 +230,7 @@ async function updateAutoSearchMeta(token: string) {
 }
 
 // ============================================================
-// الجزء الرابع: منطق البحث نفسه (نفس البرومبت والفلاتر بتاعة app.js بالظبط)
+// الجزء الثالث: البحث التلقائي للفرص فقط
 // ============================================================
 
 const AUTO_SEARCH_TOPICS = [
@@ -265,7 +238,6 @@ const AUTO_SEARCH_TOPICS = [
   "تدريب صيفي للطلاب والخريجين الجدد",
   "فرص تطوع للشباب",
   "مسابقات ريادة أعمال وتكنولوجيا للطلاب",
-  "كورسات مجانية معتمدة أونلاين",
   "مؤتمرات دولية ومحلية للطلاب والشباب",
   "وظائف مبتدئين وحديثي التخرج",
   "بوت كامب تدريبي مكثف في التكنولوجيا",
@@ -287,17 +259,10 @@ function hostnameOf(url: string): string {
 function buildPrompt(topic: string): string {
   const todayStr = new Date().toISOString().slice(0, 10);
   const currentYear = new Date().getFullYear();
-  return `النهاردة تاريخ ${todayStr} (يعني إحنا في سنة ${currentYear}). استخدم بحث جوجل الحقيقي والحي دلوقتي (متعتمدش على معرفتك القديمة بس) عشان تلاقي أشهر وأهم الفرص **الحقيقية والمعروفة والمتكررة سنويًا** (بحد أقصى 15 فرصة) اللي مناسبة لموضوع: "${topic}"، وتستهدف طلاب أو خريجين مصريين أو فرص دولية متاحة لهم.
-مهم جدًا: "فرصة" هنا معناها أي نوع من الآتي، مش بس منح أو تطوع: منح دراسية، تدريب، وظائف، تطوع، مسابقات، هاكاثونات، برامج تبادل، **كورسات مجانية أونلاين**، بوت كامب، **مؤتمرات وفعاليات**.
-شروط أساسية ولازم تلتزم بيها بدقة، وده أهم جزء في المهمة:
-- **افتح فعليًا (عن طريق البحث) صفحة كل فرصة قبل ما ترشحها، وتأكد إن التسجيل/التقديم لسه مفتوح فعلاً دلوقتي بتاريخ ${todayStr}.** لو لقيت إن باب التسجيل قفل، أو الدورة الحالية خلصت ولسه معلنش عن الدورة الجاية، **متضيفش الفرصة دي خالص** في النتيجة النهائية — حتى لو البرنامج نفسه مشهور ومعروف.
-- **لازم تلاقي تاريخ deadline حقيقي ومحدد (YYYY-MM-DD) من المصدر نفسه.** لو مش لاقي تاريخ واضح ومؤكد لآخر موعد، **متضيفش الفرصة دي خالص** — ممنوع ترجع أي فرصة من غير تاريخ deadline حقيقي.
-- رشّح بس برامج مستقرة ومعروفة إنها بتتكرر كل سنة. متختلقش اسم برنامج أو جهة مش متأكد من وجودها الحقيقي.
-- الرابط لازم يكون رابط حقيقي من نتيجة البحث بتاعتك، مش رابط مخترع.
-- لكل فرصة، صنّفها بدقة باستخدام: "tags" اختار من القايمة دي بالظبط: [${TAGS.map((t) => `"${t}"`).join(", ")}]، و"stageTags" اختار من ["middle","high","university","graduate"] (أو مصفوفة فاضية [] لو مناسبة لكل المراحل).
-رجّع بس JSON array، من غير أي نص تاني قبله أو بعده، بالشكل ده بالظبط:
-[{"title":"عنوان الفرصة","organization":"اسم الجهة","description":"وصف قصير من سطرين بالعربي","category":"scholarship أو internship أو job أو volunteering أو competition أو conference أو hackathon أو exchange أو course أو bootcamp أو event","deadline":"YYYY-MM-DD لازم تاريخ حقيقي ومؤكد","link":"رابط الموقع الرسمي المعروف للجهة","tags":["وسم1"],"stageTags":["university"]}]
-لو مش متأكد إن الفرصة دي حقيقية وموجودة ومفتوحة فعلًا دلوقتي وليها تاريخ deadline مؤكد، متضيفهاش خالص. لو مفيش فرص مفتوحة كفاية رجّع [].`;
+  return `النهاردة تاريخ ${todayStr} (سنة ${currentYear}). استخدم بحث جوجل لتجد الفرص الحقيقية المناسبة لموضوع: "${topic}".
+مهم: الفرص تشمل منح، تدريب، وظائف، تطوع، مسابقات، هاكاثونات، برامج تبادل.
+المخرجات المطلوب إرجاعها فقط كـ JSON array بالشكل التالي:
+[{"title":"عنوان الفرصة","organization":"اسم الجهة","description":"وصف قصير","category":"internship أو scholarship أو job أو volunteering","deadline":"YYYY-MM-DD","link":"رابط الموقع","tags":["برمجة"],"stageTags":["university"]}]`;
 }
 
 // deno-lint-ignore no-explicit-any
@@ -306,102 +271,63 @@ async function fetchOpportunitiesForTopic(topic: string): Promise<any[]> {
     contents: [{ role: "user", parts: [{ text: buildPrompt(topic) }] }],
     tools: [{ google_search: {} }],
   });
-  if (!res.ok) {
-    console.error(`[auto-search] Gemini error for topic "${topic}": ${res.status}`);
-    return [];
-  }
+  if (!res.ok) return [];
   const data = await res.json();
   const cand = data?.candidates?.[0];
   const text = (cand?.content?.parts ?? []).map((p: { text?: string }) => p.text || "").join("");
-  const gm = cand?.groundingMetadata;
-  // deno-lint-ignore no-explicit-any
-  const sources = (gm?.groundingChunks ?? []).map((c: any) => c.web).filter(Boolean);
-  // ملحوظة: uri الرجعة من groundingChunks بتكون رابط تحويل (redirect) بتاع
-  // Google مش الدومين الحقيقي، فالاسم الحقيقي للمصدر موجود في title بس.
-  const sourceHosts = [...new Set(sources.map((s: { title?: string }) => (s.title || "").toLowerCase().replace(/^www\./, "")).filter(Boolean))];
-  const searchEntryHtml = gm?.searchEntryPoint?.renderedContent || "";
-
   const jsonMatch = text.match(/\[[\s\S]*\]/);
   if (!jsonMatch) return [];
-  // deno-lint-ignore no-explicit-any
-  let items: any[];
+  
   try {
-    items = JSON.parse(jsonMatch[0]);
+    return JSON.parse(jsonMatch[0]);
   } catch {
     return [];
   }
-
-  const today = new Date(new Date().toISOString().slice(0, 10));
-  items = items.filter((it) => {
-    if (!isValidLink(it.link)) return false;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(it.deadline || "")) return false;
-    return new Date(it.deadline) >= today;
-  });
-  if (sourceHosts.length) {
-    items = items.filter((it) => {
-      const h = hostnameOf(it.link);
-      return h && sourceHosts.some((sh) => sh === h || sh.endsWith("." + h) || h.endsWith("." + sh));
-    });
-  }
-  return items.map((it) => ({ ...it, __sources: sources, __searchEntryHtml: searchEntryHtml }));
 }
 
-// الدالة الرئيسية اللي بيشغّلها الـcron — بتلف على كل مواضيع الفرص، وبعدين
-// وتتأكد إن كل فرصة مش موجودة قبل كده (عشان منكررش)، وتنشرها لايف في opportunities.
 async function runAutoSearch() {
-  console.log("[auto-search] بدأ التشغيل التلقائي اليومي...");
+  console.log("[auto-search] بدء تشغيل التحديث التلقائي للفرص...");
   let token: string;
   try {
     token = await getGoogleAccessToken();
   } catch (err) {
-    console.error("[auto-search] فشل التوثيق مع Google:", err);
+    console.error("[auto-search] فشل التوثيق:", err);
     return;
   }
 
-  let added = 0, skipped = 0;
   for (const topic of AUTO_SEARCH_TOPICS) {
     const items = await fetchOpportunitiesForTopic(topic);
     for (const it of items) {
       try {
-        if (isValidLink(it.link) && (await firestoreLinkExists(it.link, token, "opportunities"))) {
-          skipped++;
-          continue;
+        if (isValidLink(it.link) && !(await firestoreLinkExists(it.link, token, "opportunities"))) {
+          await createFirestoreDoc({
+            title: it.title || "بدون عنوان",
+            organization: it.organization || "",
+            description: it.description || "",
+            category: it.category || "event",
+            deadline: it.deadline || "",
+            link: it.link || "",
+            tags: Array.isArray(it.tags) ? it.tags.filter((t: string) => TAGS.includes(t)) : [],
+            stageTags: Array.isArray(it.stageTags) ? it.stageTags.filter((s: string) => ["middle", "high", "university", "graduate"].includes(s)) : [],
+            reviewed: true,
+            createdAt: Date.now(),
+          }, token, "opportunities");
         }
-        await createFirestoreDoc({
-          title: it.title || "بدون عنوان",
-          organization: it.organization || "",
-          description: it.description || "",
-          category: it.category || "event",
-          deadline: it.deadline || "",
-          link: it.link || "",
-          tags: Array.isArray(it.tags) ? it.tags.filter((t: string) => TAGS.includes(t)) : [],
-          stageTags: Array.isArray(it.stageTags) ? it.stageTags.filter((s: string) => ["middle", "high", "university", "graduate"].includes(s)) : [],
-          requirements: [],
-          reviewed: true,
-          groundingSources: it.__sources || [],
-          searchEntryPointHtml: it.__searchEntryHtml || "",
-          createdAt: Date.now(),
-        }, token, "opportunities");
-        added++;
       } catch (err) {
-        console.error(`[auto-search] فشل حفظ فرصة من موضوع "${topic}":`, err);
+        console.error(`[auto-search] خطأ في حفظ الفرصة:`, err);
       }
     }
   }
 
-  try {
-    await updateAutoSearchMeta(token);
-  } catch { /* مش مشكلة لو فشلت، دي بس عرض توضيحي في الداشبورد */ }
-  console.log(`[auto-search] خلص. فرص: اتضاف ${added}، اتجاهل ${skipped} مكررة.`);
+  try { await updateAutoSearchMeta(token); } catch { /* ignore */ }
 }
 
-// جدولة التشغيل: كل يوم الساعة 1 صباحًا بتوقيت UTC (= 3 أو 4 فجرًا بتوقيت مصر)
 Deno.cron("auto search opportunities", "0 1 * * *", async () => {
   await runAutoSearch();
 });
 
 // ============================================================
-// الجزء الخامس: الـHTTP handler العادي (البروكسي بتاع الشات والبحث اليدوي)
+// الجزء الرابع: الـ HTTP Server (المستقبل للطلبات)
 // ============================================================
 
 Deno.serve(async (req: Request) => {
@@ -414,7 +340,10 @@ Deno.serve(async (req: Request) => {
 
   try {
     const parsedBody = await req.json();
+    
+    // الحل المباشر للمشكلة: استخراج الحقول الإضافية وفصل geminiBody تماماً
     const { uid, email, feature, ...geminiBody } = parsedBody;
+
     const quota = await checkQuota(uid, email, feature);
     if (quota.configError) {
       return new Response(JSON.stringify({ error: { message: quota.configError } }), {
@@ -423,19 +352,17 @@ Deno.serve(async (req: Request) => {
       });
     }
     if (!quota.allowed) {
-      console.log(`[quota] رفض — feature=${quota.feat} id=${quota.idKey} استهلك ${quota.current}/${quota.limit}`);
-      return quotaExceededResponse(`وصلت للحد اليومي لاستخدام الذكاء الاصطناعي (${quota.limit} طلب في اليوم لنفس الميزة)، هيتصفر تلقائيًا بكرة.`);
+      return quotaExceededResponse(`وصلت للحد اليومي لاستخدام الذكاء الاصطناعي (${quota.limit} طلب اليوم).`);
     }
 
-    console.log(`[gemini] طلب جديد — feature=${quota.feat} id=${quota.idKey} (${quota.current}/${quota.limit} النهاردة)`);
+    // إرسال البيانات النظيفة فقط (geminiBody) لـ Gemini
     const googleRes = await callGemini(geminiBody);
     const data = await googleRes.text();
+
     if (googleRes.ok) {
-      // بنزوّد العداد بس دلوقتي — بعد ما اتأكدنا إن Gemini فعلًا رد بنجاح
       await consumeQuota(quota.key!, quota.current!);
-    } else {
-      console.log(`[gemini] فشل — feature=${quota.feat} id=${quota.idKey} status=${googleRes.status} — الكوتا مش هتتخصم`);
     }
+
     return new Response(data, {
       status: googleRes.status,
       headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
