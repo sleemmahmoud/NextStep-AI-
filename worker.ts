@@ -47,7 +47,17 @@ const FEATURE_LIMITS: Record<string, { user: number; admin: number }> = {
 };
 const DEFAULT_FEATURE = "chat";
 
-async function checkAndConsumeQuota(uid: string | undefined, email: string | undefined, feature: string | undefined) {
+interface QuotaCheckResult {
+  allowed: boolean;
+  configError?: string;
+  limit?: number;
+  feat?: string;
+  idKey?: string;
+  key?: Deno.KvKey;
+  current?: number;
+}
+
+async function checkQuota(uid: string | undefined, email: string | undefined, feature: string | undefined): Promise<QuotaCheckResult> {
   const feat = (feature && FEATURE_LIMITS[feature]) ? feature : DEFAULT_FEATURE;
   const isAdminUser = !!(email && ADMIN_EMAILS.includes(email));
   const limit = isAdminUser ? FEATURE_LIMITS[feat].admin : FEATURE_LIMITS[feat].user;
@@ -57,12 +67,17 @@ async function checkAndConsumeQuota(uid: string | undefined, email: string | und
     return { allowed: false, configError: "الطلب وصل من غير uid — تأكد إن app.js بيبعت uid مع كل طلب." };
   }
   const today = new Date().toISOString().slice(0, 10);
-  const key = ["aiUsage", feat, idKey, today];
+  const key: Deno.KvKey = ["aiUsage", feat, idKey, today];
   const current = (await kv.get<number>(key)).value ?? 0;
-  if (current >= limit) return { allowed: false, limit };
+  if (current >= limit) return { allowed: false, limit, feat, idKey, key, current };
+  return { allowed: true, limit, feat, idKey, key, current };
+}
+
+// بتزوّد العداد فعليًا — بنستدعيها بس بعد ما ريكوست Gemini يرجع بنجاح، عشان لو
+// فشل الطلب (شبكة، خطأ من Google، إلخ) الكوتا ما تتاكلش من غير فايدة.
+async function consumeQuota(key: Deno.KvKey, current: number) {
   // انتهاء صلاحية بعد 30 ساعة عشان المفتاح يختفي لوحده بعد ما اليوم يخلص
   await kv.set(key, current + 1, { expireIn: 1000 * 60 * 60 * 30 });
-  return { allowed: true, limit };
 }
 
 function quotaExceededResponse(message: string) {
@@ -374,18 +389,13 @@ async function runAutoSearch() {
     }
   }
 
-  // بقينا مانضيفش كورسات بالـAI تلقائيًا في resources — المصادر التعليمية
-  // بقت بيد الأدمن بس (فيديوهاته وملفاته وكورساته الخاصة)، فشلنا خطوة البحث
-  // التلقائي عن الكورسات هنا خالص. لسه بندور تلقائيًا على الفرص بس.
-
   try {
     await updateAutoSearchMeta(token);
   } catch { /* مش مشكلة لو فشلت، دي بس عرض توضيحي في الداشبورد */ }
   console.log(`[auto-search] خلص. فرص: اتضاف ${added}، اتجاهل ${skipped} مكررة.`);
 }
 
-// جدولة التشغيل: كل يوم الساعة 1 صباحًا بتوقيت UTC (= 3 أو 4 فجرًا بتوقيت مصر
-// حسب التوقيت الصيفي/الشتوي). غيّر الرقم الأول لو عايز معاد مختلف.
+// جدولة التشغيل: كل يوم الساعة 1 صباحًا بتوقيت UTC (= 3 أو 4 فجرًا بتوقيت مصر)
 Deno.cron("auto search opportunities", "0 1 * * *", async () => {
   await runAutoSearch();
 });
@@ -405,7 +415,7 @@ Deno.serve(async (req: Request) => {
   try {
     const parsedBody = await req.json();
     const { uid, email, feature, ...geminiBody } = parsedBody;
-    const quota = await checkAndConsumeQuota(uid, email, feature);
+    const quota = await checkQuota(uid, email, feature);
     if (quota.configError) {
       return new Response(JSON.stringify({ error: { message: quota.configError } }), {
         status: 400,
@@ -413,11 +423,19 @@ Deno.serve(async (req: Request) => {
       });
     }
     if (!quota.allowed) {
+      console.log(`[quota] رفض — feature=${quota.feat} id=${quota.idKey} استهلك ${quota.current}/${quota.limit}`);
       return quotaExceededResponse(`وصلت للحد اليومي لاستخدام الذكاء الاصطناعي (${quota.limit} طلب في اليوم لنفس الميزة)، هيتصفر تلقائيًا بكرة.`);
     }
 
+    console.log(`[gemini] طلب جديد — feature=${quota.feat} id=${quota.idKey} (${quota.current}/${quota.limit} النهاردة)`);
     const googleRes = await callGemini(geminiBody);
     const data = await googleRes.text();
+    if (googleRes.ok) {
+      // بنزوّد العداد بس دلوقتي — بعد ما اتأكدنا إن Gemini فعلًا رد بنجاح
+      await consumeQuota(quota.key!, quota.current!);
+    } else {
+      console.log(`[gemini] فشل — feature=${quota.feat} id=${quota.idKey} status=${googleRes.status} — الكوتا مش هتتخصم`);
+    }
     return new Response(data, {
       status: googleRes.status,
       headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
