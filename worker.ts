@@ -87,6 +87,10 @@ function quotaExceededResponse(message: string) {
 async function callGemini(geminiBody: unknown, model: string = DEFAULT_GEMINI_MODEL) {
   const apiKey = Deno.env.get("GEMINI_API_KEY");
   const startedAt = Date.now();
+  // تشخيص مؤقت: بيطبع أسماء المفاتيح الفعلية اللي هتتبعت لـGemini، عشان نتأكد
+  // 100% مفيش "email" أو أي حقل غريب متسرب فيها قبل ما نلوم الكود. شيله بعد
+  // ما تتأكد إن المشكلة اتحلت.
+  console.log(`[gemini] المفاتيح المرسلة فعليًا: ${Object.keys(geminiBody as object).join(", ")}`);
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
     {
