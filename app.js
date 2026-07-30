@@ -145,6 +145,7 @@ let state = {
   universities:[], uniSearchQuery:"", uniFilterType:"", uniFilterCity:"", openUniId:null, compareUniIds:[], adminUniDraft:null, uniAiBusy:false, adminCollegeDraft:null, showUniCompareModal:false,
   // دليل الكليات (مستقل عن أي جامعة بعينها — تخصص/كلية عامة زي "كلية الطب" بمعلوماتها كلها) ودليل المنح (برامج منح دائمة، مش فرص مؤقتة بديدلاين).
   collegesGuide:[], collegeGuideSearchQuery:"", openCollegeGuideId:null, adminCollegeGuideDraft:null,
+  collegeGuideFilterField:"", collegeGuideFilterTrack:"", collegeGuideFilterDuration:"", collegeGuideFilterSalary:"", collegeGuideFilterUni:"",
   scholarshipsGuide:[], scholarshipGuideSearchQuery:"", scholarshipGuideFilterLevel:"", openScholarshipGuideId:null, adminScholarshipGuideDraft:null,
   uniGuideInnerTab:"colleges",
   pendingOpps:[], searchTopic:"", searchBusy:false, searchErr:"", searchNote:"", lastFoundItems:[],
@@ -474,20 +475,33 @@ async function saveCollegeGuideDraft(){
   const d = state.adminCollegeGuideDraft || {};
   const payload = {
     name: (document.getElementById("cg-d-name")||{}).value?.trim() || "",
+    field: (document.getElementById("cg-d-field")||{}).value?.trim() || "",
+    track: (document.getElementById("cg-d-track")||{}).value?.trim() || "",
     universities: (document.getElementById("cg-d-universities")||{}).value?.trim() || "",
     description: (document.getElementById("cg-d-description")||{}).value?.trim() || "",
+    goal: (document.getElementById("cg-d-goal")||{}).value?.trim() || "",
     departments: (document.getElementById("cg-d-departments")||{}).value?.trim() || "",
+    keySubjects: (document.getElementById("cg-d-subjects")||{}).value?.trim() || "",
     careerOpportunities: (document.getElementById("cg-d-career")||{}).value?.trim() || "",
+    jobTitles: (document.getElementById("cg-d-jobtitles")||{}).value?.trim() || "",
     futureDemand: (document.getElementById("cg-d-demand")||{}).value?.trim() || "",
+    aiImpact: (document.getElementById("cg-d-aiimpact")||{}).value?.trim() || "",
     salaryRange: (document.getElementById("cg-d-salary")||{}).value?.trim() || "",
+    salaryLevel: (document.getElementById("cg-d-salarylevel")||{}).value?.trim() || "",
     skillsRequired: (document.getElementById("cg-d-skills")||{}).value?.trim() || "",
     suitablePersonalities: (document.getElementById("cg-d-personality")||{}).value?.trim() || "",
+    notSuitableFor: (document.getElementById("cg-d-notsuitable")||{}).value?.trim() || "",
     admissionInfo: (document.getElementById("cg-d-admission")||{}).value?.trim() || "",
+    admissionHistory: (document.getElementById("cg-d-admissionhistory")||{}).value?.trim() || "",
     scholarshipsNote: (document.getElementById("cg-d-scholarships")||{}).value?.trim() || "",
     relatedMajors: (document.getElementById("cg-d-related")||{}).value?.trim() || "",
     studyYears: (document.getElementById("cg-d-years")||{}).value?.trim() || "",
+    durationYears: (document.getElementById("cg-d-duration")||{}).value?.trim() || "",
+    degree: (document.getElementById("cg-d-degree")||{}).value?.trim() || "",
+    videoUrl: (document.getElementById("cg-d-video")||{}).value?.trim() || "",
     website: (document.getElementById("cg-d-website")||{}).value?.trim() || "",
     image: (document.getElementById("cg-d-image")||{}).value?.trim() || "",
+    faq: (document.getElementById("cg-d-faq")||{}).value?.trim() || "",
     updatedAt: Date.now(),
   };
   if(!payload.name){
@@ -2337,19 +2351,45 @@ function renderCollegesGuide(){
   const q = normalizeAr(state.collegeGuideSearchQuery||"");
   let list = state.collegesGuide.slice();
   if(q){
-    list = list.filter(c=>normalizeAr([c.name,c.departments,c.relatedMajors,c.universities].filter(Boolean).join(" ")).includes(q));
+    list = list.filter(c=>normalizeAr([c.name,c.departments,c.relatedMajors,c.universities,c.field].filter(Boolean).join(" ")).includes(q));
   }
+  if(state.collegeGuideFilterField) list = list.filter(c=>c.field===state.collegeGuideFilterField);
+  if(state.collegeGuideFilterTrack) list = list.filter(c=>(c.track||"").includes(state.collegeGuideFilterTrack));
+  if(state.collegeGuideFilterDuration) list = list.filter(c=>String(c.durationYears||"")===state.collegeGuideFilterDuration);
+  if(state.collegeGuideFilterSalary) list = list.filter(c=>c.salaryLevel===state.collegeGuideFilterSalary);
+  if(state.collegeGuideFilterUni) list = list.filter(c=>normalizeAr(c.universities||"").includes(normalizeAr(state.collegeGuideFilterUni)));
+  const activeFiltersCount = [state.collegeGuideFilterField,state.collegeGuideFilterTrack,state.collegeGuideFilterDuration,state.collegeGuideFilterSalary,state.collegeGuideFilterUni].filter(Boolean).length;
   return `
   <div class="note-box" style="margin-bottom:12px;">
-    🏛️ دليل الكليات — كل كليات مصر (طب، هندسة بفروعها، تجارة، وغيرها) بمعلومات كاملة عن الأقسام وفرص العمل والرواتب، يساعدك تختار الكلية المناسبة ليك بعد الثانوية.
+    🏛️ دليل الكليات — موسوعة كل كليات مصر (طب، هندسة بفروعها، حاسبات، تجارة، وغيرها) بمعلومات كاملة عن الأقسام وفرص العمل والرواتب، يساعدك تختار الكلية المناسبة ليك بعد الثانوية.
   </div>
   <form id="cg-search-form" style="display:flex;gap:8px;margin-bottom:10px;">
-    <input id="cg-search-input" type="text" value="${escapeHtml(state.collegeGuideSearchQuery)}" placeholder="دور باسم الكلية أو التخصص..." style="flex:1;padding:11px 14px;border:1.5px solid var(--border);border-radius:10px;font-size:14px;">
+    <input id="cg-search-input" type="text" value="${escapeHtml(state.collegeGuideSearchQuery)}" placeholder="دور باسم الكلية أو التخصص أو المجال..." style="flex:1;padding:11px 14px;border:1.5px solid var(--border);border-radius:10px;font-size:14px;">
     <button type="submit" class="btn btn-ghost" style="padding:11px 18px;">بحث</button>
   </form>
+  <div style="margin-bottom:6px;font-size:12px;font-weight:700;color:var(--ink-muted);">المجال</div>
+  <div class="cat-chip-row" style="margin-bottom:8px;">
+    <button type="button" class="pill ${!state.collegeGuideFilterField?"selected":""}" data-action="cg-filter-field" data-val="">الكل</button>
+    ${COLLEGE_FIELDS.map(f=>`<button type="button" class="pill ${state.collegeGuideFilterField===f?"selected":""}" data-action="cg-filter-field" data-val="${escapeHtml(f)}">${escapeHtml(f)}</button>`).join("")}
+  </div>
+  <div style="margin-bottom:6px;font-size:12px;font-weight:700;color:var(--ink-muted);">الشعبة</div>
+  <div class="cat-chip-row" style="margin-bottom:8px;">
+    <button type="button" class="pill ${!state.collegeGuideFilterTrack?"selected":""}" data-action="cg-filter-track" data-val="">الكل</button>
+    ${COLLEGE_TRACKS.map(f=>`<button type="button" class="pill ${state.collegeGuideFilterTrack===f?"selected":""}" data-action="cg-filter-track" data-val="${escapeHtml(f)}">${escapeHtml(f)}</button>`).join("")}
+  </div>
+  <div style="margin-bottom:6px;font-size:12px;font-weight:700;color:var(--ink-muted);">مدة الدراسة</div>
+  <div class="cat-chip-row" style="margin-bottom:8px;">
+    <button type="button" class="pill ${!state.collegeGuideFilterDuration?"selected":""}" data-action="cg-filter-duration" data-val="">الكل</button>
+    ${["4","5","6"].map(f=>`<button type="button" class="pill ${state.collegeGuideFilterDuration===f?"selected":""}" data-action="cg-filter-duration" data-val="${f}">${f} سنوات</button>`).join("")}
+  </div>
+  <div style="margin-bottom:6px;font-size:12px;font-weight:700;color:var(--ink-muted);">مستوى الرواتب (تقريبي)</div>
+  <div class="cat-chip-row" style="margin-bottom:12px;">
+    <button type="button" class="pill ${!state.collegeGuideFilterSalary?"selected":""}" data-action="cg-filter-salary" data-val="">الكل</button>
+    ${COLLEGE_SALARY_LEVELS.map(f=>`<button type="button" class="pill ${state.collegeGuideFilterSalary===f?"selected":""}" data-action="cg-filter-salary" data-val="${escapeHtml(f)}">${escapeHtml(f)}</button>`).join("")}
+  </div>
   ${isAdmin()?`<button type="button" class="btn btn-ghost btn-block" style="margin-bottom:12px;" data-action="admin-new-college-guide">+ أضف كلية (إدارة)</button>`:""}
   ${isAdmin()&&state.adminCollegeGuideDraft?renderAdminCollegeGuideForm():""}
-  ${list.length===0?`<div class="empty-state"><h3>لسه مفيش كليات مضافة${q?" بالبحث ده":""}</h3><p>${isAdmin()?"دوس \"أضف كلية\" فوق عشان تبدأ تبني الدليل.":"الدليل لسه بيتبنى — تابعنا هيتزوّد قريب."}</p></div>`:
+  ${list.length===0?`<div class="empty-state"><h3>لسه مفيش كليات مضافة${q||activeFiltersCount?" بالفلتر ده":""}</h3><p>${isAdmin()?"دوس \"أضف كلية\" فوق عشان تبدأ تبني الدليل.":"الدليل لسه بيتبنى — تابعنا هيتزوّد قريب."}</p></div>`:
   list.map(c=>`
   <div class="card opp-card" data-action="open-college-guide" data-id="${c.id}" style="cursor:pointer;display:flex;gap:12px;align-items:flex-start;">
     ${c.image?`<img src="${escapeHtml(c.image)}" alt="" style="width:56px;height:56px;border-radius:10px;object-fit:cover;flex-shrink:0;">`:`<div style="width:56px;height:56px;border-radius:10px;background:var(--gold-soft, #f3e8d0);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:22px;">🏛️</div>`}
@@ -2361,49 +2401,76 @@ function renderCollegesGuide(){
   </div>`).join("")}
   `;
 }
+const COLLEGE_FIELDS = ["طبي","هندسي","حاسبات وذكاء اصطناعي","تجاري واقتصادي","أدبي وإنساني","تربوي","زراعي وبيطري","فني وإعلامي","سياحي وفندقي","قانوني"];
+const COLLEGE_TRACKS = ["علمي علوم","علمي رياضة","أدبي"];
+const COLLEGE_SALARY_LEVELS = ["متوسط","فوق المتوسط","مرتفع","مرتفع جدًا"];
 function renderCollegeGuideDetail(c){
+  const faqItems = (c.faq||"").split("\n").filter(Boolean);
   return `
   <button type="button" class="link-btn" data-action="close-college-guide" style="margin-bottom:10px;">→ رجوع لدليل الكليات</button>
   <div class="card" style="padding:20px;margin-bottom:14px;">
     ${c.image?`<img src="${escapeHtml(c.image)}" alt="" style="width:100%;max-height:180px;object-fit:cover;border-radius:12px;margin-bottom:12px;">`:""}
     <h2 style="font-size:19px;font-weight:800;margin:0 0 4px;">${escapeHtml(c.name)}</h2>
     ${c.universities?`<div style="color:var(--ink-muted);font-size:13px;margin-bottom:10px;">🏫 متاحة في: ${escapeHtml(c.universities)}</div>`:""}
-    ${c.description?`<p style="font-size:13.5px;line-height:1.8;margin-bottom:10px;">${escapeHtml(c.description)}</p>`:""}
-    ${c.studyYears?`<div style="font-size:13px;margin-bottom:6px;"><b>📅 سنوات الدراسة:</b> ${escapeHtml(c.studyYears)}</div>`:""}
-    ${c.departments?`<div style="font-size:13px;margin-bottom:6px;"><b>🧩 الأقسام:</b> ${escapeHtml(c.departments)}</div>`:""}
-    ${c.careerOpportunities?`<div style="font-size:13px;margin-bottom:6px;"><b>💼 فرص العمل بعد التخرج:</b> ${escapeHtml(c.careerOpportunities)}</div>`:""}
-    ${c.futureDemand?`<div style="font-size:13px;margin-bottom:6px;"><b>📈 الطلب المستقبلي:</b> ${escapeHtml(c.futureDemand)}</div>`:""}
+    ${c.description?`<div style="font-size:13px;margin-bottom:6px;"><b>📚 نبذة عن الكلية:</b><p style="margin:4px 0 0;line-height:1.8;">${escapeHtml(c.description)}</p></div>`:""}
+    ${c.goal?`<div style="font-size:13px;margin-bottom:6px;"><b>🎯 هدف الكلية:</b> ${escapeHtml(c.goal)}</div>`:""}
+    ${c.departments?`<div style="font-size:13px;margin-bottom:6px;"><b>🏛️ الأقسام والتخصصات:</b> ${escapeHtml(c.departments)}</div>`:""}
+    ${c.keySubjects?`<div style="font-size:13px;margin-bottom:6px;"><b>📖 أهم المواد الدراسية:</b> ${escapeHtml(c.keySubjects)}</div>`:""}
+    ${c.studyYears||c.durationYears?`<div style="font-size:13px;margin-bottom:6px;"><b>⏳ مدة الدراسة:</b> ${escapeHtml(c.studyYears||(c.durationYears+" سنوات"))}</div>`:""}
+    ${c.degree?`<div style="font-size:13px;margin-bottom:6px;"><b>🎓 الدرجة العلمية:</b> ${escapeHtml(c.degree)}</div>`:""}
+    ${c.careerOpportunities?`<div style="font-size:13px;margin-bottom:6px;"><b>💼 مجالات العمل بعد التخرج:</b> ${escapeHtml(c.careerOpportunities)}</div>`:""}
+    ${c.jobTitles?`<div style="font-size:13px;margin-bottom:6px;"><b>🚀 المسميات الوظيفية:</b> ${escapeHtml(c.jobTitles)}</div>`:""}
     ${c.salaryRange?`<div style="font-size:13px;margin-bottom:6px;"><b>💰 متوسط الرواتب (تقريبي):</b> ${escapeHtml(c.salaryRange)}</div>`:""}
-    ${c.skillsRequired?`<div style="font-size:13px;margin-bottom:6px;"><b>🛠️ المهارات المطلوبة:</b> ${escapeHtml(c.skillsRequired)}</div>`:""}
-    ${c.suitablePersonalities?`<div style="font-size:13px;margin-bottom:6px;"><b>🧠 مناسبة لو شخصيتك:</b> ${escapeHtml(c.suitablePersonalities)}</div>`:""}
+    ${c.futureDemand?`<div style="font-size:13px;margin-bottom:6px;"><b>📈 مستقبل الكلية والطلب عليها:</b> ${escapeHtml(c.futureDemand)}</div>`:""}
+    ${c.aiImpact?`<div style="font-size:13px;margin-bottom:6px;"><b>🤖 تأثير الذكاء الاصطناعي على التخصص:</b> ${escapeHtml(c.aiImpact)}</div>`:""}
+    ${c.skillsRequired?`<div style="font-size:13px;margin-bottom:6px;"><b>🧠 المهارات المطلوبة للنجاح:</b> ${escapeHtml(c.skillsRequired)}</div>`:""}
+    ${c.suitablePersonalities?`<div style="font-size:13px;margin-bottom:6px;"><b>👤 مين الشخص المناسب للكلية؟</b> ${escapeHtml(c.suitablePersonalities)}</div>`:""}
+    ${c.notSuitableFor?`<div style="font-size:13px;margin-bottom:6px;"><b>❌ مين ممكن ما يناسبوش:</b> ${escapeHtml(c.notSuitableFor)}</div>`:""}
     ${c.admissionInfo?`<div class="note-box" style="margin-bottom:10px;"><b>شروط القبول/التنسيق:</b> ${escapeHtml(c.admissionInfo)}</div>`:""}
+    ${c.admissionHistory?`<div style="font-size:13px;margin-bottom:6px;"><b>📊 تنسيق السنوات السابقة:</b> ${escapeHtml(c.admissionHistory)}</div>`:""}
     ${c.scholarshipsNote?`<div style="font-size:13px;margin-bottom:6px;"><b>🎓 منح متاحة للكلية دي:</b> ${escapeHtml(c.scholarshipsNote)}</div>`:""}
     ${c.relatedMajors?`<div style="font-size:13px;margin-bottom:6px;"><b>🔗 تخصصات قريبة:</b> ${escapeHtml(c.relatedMajors)}</div>`:""}
-    ${c.website?`<a href="${escapeHtml(c.website)}" target="_blank" rel="noopener" class="link-btn">رابط مرجعي ↗</a>`:""}
-    ${c.updatedAt?`<div style="font-size:11px;color:var(--ink-muted);margin-top:8px;">آخر تحديث: ${new Date(c.updatedAt).toLocaleDateString("ar-EG")}</div>`:""}
+    ${c.videoUrl?`<div style="margin-bottom:10px;"><a href="${escapeHtml(c.videoUrl)}" target="_blank" rel="noopener" class="link-btn">🎥 فيديو تعريفي ↗</a></div>`:""}
+    ${c.website?`<a href="${escapeHtml(c.website)}" target="_blank" rel="noopener" class="link-btn">🌐 الموقع الرسمي ↗</a>`:""}
+    ${faqItems.length?`<div style="margin-top:14px;"><b style="font-size:13.5px;">❓ أسئلة شائعة</b>${faqItems.map(line=>`<div style="font-size:13px;margin-top:6px;line-height:1.7;">${escapeHtml(line)}</div>`).join("")}</div>`:""}
+    ${c.updatedAt?`<div style="font-size:11px;color:var(--ink-muted);margin-top:10px;">آخر تحديث: ${new Date(c.updatedAt).toLocaleDateString("ar-EG")}</div>`:""}
     ${isAdmin()?`<div style="display:flex;gap:8px;margin-top:12px;"><button class="pill" data-action="admin-edit-college-guide" data-id="${c.id}">✏️ تعديل</button><button class="pill" data-action="admin-delete-college-guide" data-id="${c.id}" style="color:#B4232C;">🗑️ حذف</button></div>`:""}
   </div>`;
 }
 function renderAdminCollegeGuideForm(){
   const d = state.adminCollegeGuideDraft || {};
+  const selectOpts = (opts,val)=>opts.map(o=>`<option value="${escapeHtml(o)}" ${val===o?"selected":""}>${escapeHtml(o)}</option>`).join("");
   return `
   <div class="card" style="padding:18px;margin-bottom:14px;">
     <div style="font-weight:800;margin-bottom:10px;">${d.id?"تعديل كلية":"كلية جديدة"}</div>
     <div class="field"><label>اسم الكلية</label><input id="cg-d-name" type="text" value="${escapeHtml(d.name||"")}" placeholder="مثال: كلية طب الأسنان"></div>
+    <div class="field"><label>المجال (للفلترة)</label><select id="cg-d-field"><option value="">اختر المجال</option>${selectOpts(COLLEGE_FIELDS,d.field||"")}</select></div>
+    <div class="field"><label>الشعبة المطلوبة (للفلترة)</label><select id="cg-d-track"><option value="">اختر الشعبة</option>${selectOpts(COLLEGE_TRACKS,d.track||"")}</select></div>
     <div class="field"><label>متاحة في (الجامعات)</label><input id="cg-d-universities" type="text" value="${escapeHtml(d.universities||"")}" placeholder="القاهرة، عين شمس، الإسكندرية..."></div>
-    <div class="field"><label>نبذة عامة</label><textarea id="cg-d-description" rows="3">${escapeHtml(d.description||"")}</textarea></div>
-    <div class="field"><label>سنوات الدراسة</label><input id="cg-d-years" type="text" value="${escapeHtml(d.studyYears||"")}" placeholder="مثال: 5 سنوات + سنة امتياز"></div>
-    <div class="field"><label>الأقسام</label><textarea id="cg-d-departments" rows="2">${escapeHtml(d.departments||"")}</textarea></div>
-    <div class="field"><label>فرص العمل بعد التخرج</label><textarea id="cg-d-career" rows="2">${escapeHtml(d.careerOpportunities||"")}</textarea></div>
-    <div class="field"><label>الطلب المستقبلي على الخريجين</label><textarea id="cg-d-demand" rows="2">${escapeHtml(d.futureDemand||"")}</textarea></div>
-    <div class="field"><label>متوسط الرواتب (تقريبي)</label><input id="cg-d-salary" type="text" value="${escapeHtml(d.salaryRange||"")}"></div>
-    <div class="field"><label>المهارات المطلوبة</label><textarea id="cg-d-skills" rows="2">${escapeHtml(d.skillsRequired||"")}</textarea></div>
-    <div class="field"><label>مناسبة لو شخصيتك</label><textarea id="cg-d-personality" rows="2">${escapeHtml(d.suitablePersonalities||"")}</textarea></div>
+    <div class="field"><label>📚 نبذة عامة (بتدرس إيه؟)</label><textarea id="cg-d-description" rows="3">${escapeHtml(d.description||"")}</textarea></div>
+    <div class="field"><label>🎯 هدف الكلية</label><textarea id="cg-d-goal" rows="2">${escapeHtml(d.goal||"")}</textarea></div>
+    <div class="field"><label>🏛️ الأقسام والتخصصات</label><textarea id="cg-d-departments" rows="2">${escapeHtml(d.departments||"")}</textarea></div>
+    <div class="field"><label>📖 أهم المواد الدراسية</label><textarea id="cg-d-subjects" rows="2">${escapeHtml(d.keySubjects||"")}</textarea></div>
+    <div class="field"><label>⏳ مدة الدراسة (نص وصفي)</label><input id="cg-d-years" type="text" value="${escapeHtml(d.studyYears||"")}" placeholder="مثال: 5 سنوات + سنة امتياز"></div>
+    <div class="field"><label>عدد سنوات الدراسة (رقم — للفلترة)</label><select id="cg-d-duration"><option value="">—</option>${selectOpts(["4","5","6"],String(d.durationYears||""))}</select></div>
+    <div class="field"><label>🎓 الدرجة العلمية</label><input id="cg-d-degree" type="text" value="${escapeHtml(d.degree||"")}" placeholder="بكالوريوس / بكالوريوس + امتياز..."></div>
+    <div class="field"><label>💼 مجالات العمل بعد التخرج</label><textarea id="cg-d-career" rows="2">${escapeHtml(d.careerOpportunities||"")}</textarea></div>
+    <div class="field"><label>🚀 المسميات الوظيفية</label><textarea id="cg-d-jobtitles" rows="2">${escapeHtml(d.jobTitles||"")}</textarea></div>
+    <div class="field"><label>💰 متوسط الرواتب (تقريبي)</label><input id="cg-d-salary" type="text" value="${escapeHtml(d.salaryRange||"")}" placeholder="مثال: 8,000–25,000 جنيه شهريًا (مصر)"></div>
+    <div class="field"><label>مستوى الرواتب (للفلترة)</label><select id="cg-d-salarylevel"><option value="">—</option>${selectOpts(COLLEGE_SALARY_LEVELS,d.salaryLevel||"")}</select></div>
+    <div class="field"><label>📈 مستقبل الكلية والطلب عليها</label><textarea id="cg-d-demand" rows="2">${escapeHtml(d.futureDemand||"")}</textarea></div>
+    <div class="field"><label>🤖 تأثير الذكاء الاصطناعي على التخصص</label><textarea id="cg-d-aiimpact" rows="2">${escapeHtml(d.aiImpact||"")}</textarea></div>
+    <div class="field"><label>🧠 المهارات المطلوبة للنجاح</label><textarea id="cg-d-skills" rows="2">${escapeHtml(d.skillsRequired||"")}</textarea></div>
+    <div class="field"><label>👤 مين الشخص المناسب للكلية؟</label><textarea id="cg-d-personality" rows="2">${escapeHtml(d.suitablePersonalities||"")}</textarea></div>
+    <div class="field"><label>❌ مين ممكن ما يناسبوش</label><textarea id="cg-d-notsuitable" rows="2">${escapeHtml(d.notSuitableFor||"")}</textarea></div>
     <div class="field"><label>شروط القبول/التنسيق</label><textarea id="cg-d-admission" rows="2">${escapeHtml(d.admissionInfo||"")}</textarea></div>
-    <div class="field"><label>منح متاحة (لو فيه)</label><textarea id="cg-d-scholarships" rows="2">${escapeHtml(d.scholarshipsNote||"")}</textarea></div>
-    <div class="field"><label>تخصصات قريبة</label><input id="cg-d-related" type="text" value="${escapeHtml(d.relatedMajors||"")}"></div>
-    <div class="field"><label>رابط مرجعي (اختياري)</label><input id="cg-d-website" type="text" value="${escapeHtml(d.website||"")}"></div>
+    <div class="field"><label>📊 تنسيق السنوات السابقة</label><textarea id="cg-d-admissionhistory" rows="2">${escapeHtml(d.admissionHistory||"")}</textarea></div>
+    <div class="field"><label>🎓 منح متاحة (لو فيه)</label><textarea id="cg-d-scholarships" rows="2">${escapeHtml(d.scholarshipsNote||"")}</textarea></div>
+    <div class="field"><label>🔗 تخصصات قريبة</label><input id="cg-d-related" type="text" value="${escapeHtml(d.relatedMajors||"")}"></div>
+    <div class="field"><label>🎥 رابط فيديو تعريفي (اختياري)</label><input id="cg-d-video" type="text" value="${escapeHtml(d.videoUrl||"")}"></div>
+    <div class="field"><label>🌐 الموقع الرسمي (اختياري)</label><input id="cg-d-website" type="text" value="${escapeHtml(d.website||"")}"></div>
     <div class="field"><label>رابط صورة (اختياري)</label><input id="cg-d-image" type="text" value="${escapeHtml(d.image||"")}"></div>
+    <div class="field"><label>❓ أسئلة شائعة (سطر لكل سؤال، مثال: س: ...؟ ج: ...)</label><textarea id="cg-d-faq" rows="4">${escapeHtml(d.faq||"")}</textarea></div>
     <div style="display:flex;gap:8px;">
       <button type="button" class="btn btn-gold" style="flex:1;" data-action="save-college-guide-draft">حفظ</button>
       <button type="button" class="btn btn-ghost" style="flex:1;" data-action="cancel-college-guide-draft">إلغاء</button>
@@ -4427,6 +4494,10 @@ app.addEventListener("click",(e)=>{
   else if(action==="save-college-draft"){ saveCollegeDraft(); }
   else if(action==="admin-delete-college"){ deleteCollege(t.dataset.id, Number(t.dataset.idx)); }
   else if(action==="uni-guide-inner-tab"){ state.uniGuideInnerTab = t.dataset.inner; render(); }
+  else if(action==="cg-filter-field"){ state.collegeGuideFilterField = t.dataset.val; render(); }
+  else if(action==="cg-filter-track"){ state.collegeGuideFilterTrack = t.dataset.val; render(); }
+  else if(action==="cg-filter-duration"){ state.collegeGuideFilterDuration = t.dataset.val; render(); }
+  else if(action==="cg-filter-salary"){ state.collegeGuideFilterSalary = t.dataset.val; render(); }
   else if(action==="open-college-guide"){ state.openCollegeGuideId = t.dataset.id; render(); }
   else if(action==="close-college-guide"){ state.openCollegeGuideId = null; render(); }
   else if(action==="admin-new-college-guide"){ state.adminCollegeGuideDraft = {}; render(); }
