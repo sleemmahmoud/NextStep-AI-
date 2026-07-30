@@ -16,13 +16,19 @@ function getFirebaseAdmin() {
     let serviceAccount;
     try {
       // بنحوّل الـJSON المخزّن كنص في متغير البيئة لـobject حقيقي هنا بالظبط.
-      serviceAccount = JSON.parse(raw);
+      serviceAccount = JSON.parse(raw.trim());
     } catch (err) {
       throw new Error("FIREBASE_SERVICE_ACCOUNT مش JSON صحيح: " + err.message);
     }
+    // مهم: أي مسافة أو سطر جديد زيادة (\n) اتلصق بالغلط في قيمة متغير البيئة
+    // FIREBASE_PROJECT_ID أو جوه project_id بيبوظ مسار Firestore بالكامل
+    // ويطلع خطأ "illegal characters" من grpc — فبنعمل trim() صريح هنا كحماية.
+    const projectId = (process.env.FIREBASE_PROJECT_ID || serviceAccount.project_id || "").trim();
+    if (serviceAccount.project_id) serviceAccount.project_id = String(serviceAccount.project_id).trim();
+    if (serviceAccount.client_email) serviceAccount.client_email = String(serviceAccount.client_email).trim();
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
-      projectId: process.env.FIREBASE_PROJECT_ID || serviceAccount.project_id,
+      projectId,
     });
   }
   return admin;
