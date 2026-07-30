@@ -1,0 +1,72 @@
+// ============================================================
+// /api/chat — بروكسي Gemini الوحيد للمنصة، شغال كـVercel Serverless Function.
+// ده البديل الكامل لبروكسي الـCloudflare Worker القديم: نفس المنطق بالظبط
+// (حد يومي، موديل واحد، من غير أي retry)، بس هنا بيستخدم Vercel Environment
+// Variables وFirestore (عن طريق Firebase Admin SDK) بدل Cloudflare KV
+// والـBindings خالص.
+// ============================================================
+const { callGemini, ADMIN_EMAILS, DAILY_LIMIT, ADMIN_DAILY_LIMIT } = require("./_lib/gemini");
+const { checkQuota, consumeQuota } = require("./_lib/quota");
+
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "*";
+// أي حقل غير دول بيتشال تلقائيًا قبل ما يوصل لـGemini. "model" مش موجودة هنا
+// عن قصد — الموديل ثابت (GEMINI_MODEL جوه _lib/gemini.js) ومش بيتغيّر بناءً
+// على أي حاجة جاية من الموقع خالص.
+const ALLOWED_GEMINI_FIELDS = ["contents", "generationConfig", "safetySettings", "systemInstruction", "tools", "toolConfig", "cachedContent"];
+
+function setCors(res) {
+  res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+
+module.exports = async (req, res) => {
+  setCors(res);
+  if (req.method === "OPTIONS") { res.status(204).end(); return; }
+  if (req.method !== "POST") { res.status(405).json({ error: { message: "Method not allowed" } }); return; }
+
+  let parsedBody;
+  try {
+    parsedBody = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
+  } catch (err) {
+    res.status(400).json({ error: { message: "الطلب مش JSON صحيح." } });
+    return;
+  }
+
+  try {
+    const { uid, email, action } = parsedBody;
+
+    if (action === "quotaStatus") {
+      const quota = await checkQuota({ uid, email, ADMIN_EMAILS, DAILY_LIMIT, ADMIN_DAILY_LIMIT });
+      if (quota.configError) { res.status(400).json({ error: { message: quota.configError } }); return; }
+      res.status(200).json({ limit: quota.limit, used: quota.current, remaining: (quota.limit ?? 0) - (quota.current ?? 0) });
+      return;
+    }
+
+    const quota = await checkQuota({ uid, email, ADMIN_EMAILS, DAILY_LIMIT, ADMIN_DAILY_LIMIT });
+    if (quota.configError) { res.status(400).json({ error: { message: quota.configError } }); return; }
+    if (!quota.allowed) {
+      console.log(`[quota] رفض — id=${quota.idKey} استهلك ${quota.current}/${quota.limit}`);
+      res.status(429).json({ error: { message: `وصلت للحد اليومي لاستخدام الذكاء الاصطناعي (${quota.limit} طلب في اليوم)، هيتصفر تلقائيًا بكرة.` } });
+      return;
+    }
+
+    // قايمة سماح صريحة قبل ما نبعت أي حاجة لـGemini.
+    const geminiBody = {};
+    for (const k of ALLOWED_GEMINI_FIELDS) {
+      if (parsedBody[k] !== undefined) geminiBody[k] = parsedBody[k];
+    }
+
+    console.log(`[gemini] طلب جديد — id=${quota.idKey} (${quota.current}/${quota.limit} النهاردة)`);
+    const { res: googleRes, text: data } = await callGemini(geminiBody);
+    if (googleRes.ok) {
+      await consumeQuota(quota.docId, quota.current);
+    } else {
+      console.log(`[gemini] فشل — id=${quota.idKey} status=${googleRes.status} — الكوتا مش هتتخصم`);
+    }
+    res.status(googleRes.status).setHeader("Content-Type", "application/json").send(data);
+  } catch (err) {
+    console.error("[api/chat] proxy_error:", err);
+    res.status(500).json({ error: "proxy_error", message: String(err && err.message || err) });
+  }
+};
