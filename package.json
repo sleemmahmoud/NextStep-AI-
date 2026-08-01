@@ -1,9 +1,0 @@
-{
-  "name": "nextstep-ai",
-  "version": "1.0.0",
-  "private": true,
-  "description": "NextStep AI — Vercel-hosted static frontend + serverless Gemini/Firestore API (no Cloudflare dependency).",
-  "dependencies": {
-    "firebase-admin": "^12.6.0"
-  }
-}
