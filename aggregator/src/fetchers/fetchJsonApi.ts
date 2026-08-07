@@ -1,49 +1,37 @@
-import type { OpportunitySource, RawOpportunity } from "../types";
-import { withTimeout } from "../retry";
+import { withTimeout } from "../utils/retry";
 import { CONFIG } from "../config";
-
-// كل API JSON شكل رده مختلف تمامًا عن التاني، فمفيش "شكل موحّد" ممكن نفرضه.
-// كل مصدر من النوع ده لازم يجيب معاه mapItem() في sources.ts بتحوّل عنصر
-// واحد خام من رد الـAPI لشكل RawOpportunity الموحّد بتاعنا.
-export type JsonApiMapper = (rawItem: unknown, source: OpportunitySource) => RawOpportunity | null;
 
 export interface JsonApiRequestOptions {
   method?: "GET" | "POST";
-  body?: unknown; // بيتحوّل لـJSON.stringify تلقائيًا لو موجود
+  body?: unknown;
+  headers?: Record<string, string>;
 }
 
-// المسار جوه الـJSON اللي فيه مصفوفة العناصر (زي "data.oppHits" أو
-// "results")، بنوتاته بنقطة. لو مش موجود، بنفترض إن الرد نفسه هو المصفوفة.
-export async function fetchJsonApiSource(
-  source: OpportunitySource,
-  arrayPath: string | null,
-  mapItem: JsonApiMapper,
+// أداة مساعدة عامة (اختيارية) — أي Connector يقدر يستخدمها من جواه بدل ما
+// يكتب منطق fetch من الصفر، مش إجباري. مسؤولية تحويل الشكل (mapItem) بقت
+// مسؤولية الـConnector نفسه دلوقتي، مش جزء من الأداة دي.
+export async function fetchJson(
+  id: string,
+  url: string,
   requestOptions?: JsonApiRequestOptions
-): Promise<RawOpportunity[]> {
+): Promise<unknown> {
   const method = requestOptions?.method || "GET";
   const init: RequestInit = { method };
-  if (method === "POST") {
-    init.headers = { "Content-Type": "application/json" };
+  if (method === "POST" || requestOptions?.body) {
+    init.headers = { "Content-Type": "application/json", ...(requestOptions?.headers || {}) };
     init.body = JSON.stringify(requestOptions?.body ?? {});
+  } else if (requestOptions?.headers) {
+    init.headers = requestOptions.headers;
   }
-  const res = await withTimeout(fetch(source.url, init), CONFIG.FETCH_TIMEOUT_MS, source.id);
+  const res = await withTimeout(fetch(url, init), CONFIG.FETCH_TIMEOUT_MS, id);
   if (!res.ok) {
-    throw new Error(`JSON API fetch فشل (${source.id}): HTTP ${res.status}`);
+    throw new Error(`JSON API fetch فشل (${id}): HTTP ${res.status}`);
   }
-  const body = await res.json();
-  const list = arrayPath ? getByPath(body, arrayPath) : body;
-  if (!Array.isArray(list)) {
-    throw new Error(`رد الـAPI مش مصفوفة زي المتوقع (arrayPath="${arrayPath}") — ${source.id}`);
-  }
-  const mapped: RawOpportunity[] = [];
-  for (const raw of list) {
-    const item = mapItem(raw, source);
-    if (item) mapped.push(item);
-  }
-  return mapped;
+  return res.json();
 }
 
-function getByPath(obj: unknown, path: string): unknown {
+// استخراج مصفوفة من رد JSON بمسار منقّط (زي "data.oppHits").
+export function getByPath(obj: unknown, path: string): unknown {
   return path.split(".").reduce<unknown>((acc, key) => {
     if (acc && typeof acc === "object" && key in (acc as Record<string, unknown>)) {
       return (acc as Record<string, unknown>)[key];
