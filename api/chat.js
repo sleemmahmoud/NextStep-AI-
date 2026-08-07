@@ -8,6 +8,7 @@
 const { callGemini, ADMIN_EMAILS, DAILY_LIMIT, ADMIN_DAILY_LIMIT } = require("./_lib/gemini");
 const { checkQuota, consumeQuota } = require("./_lib/quota");
 const { verifyRequestAuth } = require("./_lib/verifyAuth");
+const { answerQuestion } = require("./_lib/ai/fallbackChain");
 
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "*";
 // أي حقل غير دول بيتشال تلقائيًا قبل ما يوصل لـGemini. "model" مش موجودة هنا
@@ -46,6 +47,32 @@ module.exports = async (req, res) => {
       const quota = await checkQuota({ uid, email, ADMIN_EMAILS, DAILY_LIMIT, ADMIN_DAILY_LIMIT });
       if (quota.configError) { res.status(400).json({ error: { message: quota.configError } }); return; }
       res.status(200).json({ limit: quota.limit, used: quota.current, remaining: (quota.limit ?? 0) - (quota.current ?? 0) });
+      return;
+    }
+
+    // 🆕 مسار المساعد الذكي التفاعلي (Sprint 2 — Hybrid AI Architecture):
+    // سؤال المستخدم بيعدي على Rules Engine ثم Knowledge Base الأول (مجانًا
+    // وفوري)، وGemini بيتنده بس لو الطبقتين دول مالقوش رد كافٍ. الكوتا
+    // بتتخصم فقط لو Gemini فعليًا اتنده ونجح — مش لو الرد جه من Rules أو
+    // Knowledge Base أو حتى لو Gemini فشل.
+    if (action === "assistantChat") {
+      const question = String(parsedBody.question || "").trim();
+      if (!question) {
+        res.status(400).json({ error: { message: "اكتب سؤالك الأول." } });
+        return;
+      }
+      const quota = await checkQuota({ uid, email, ADMIN_EMAILS, DAILY_LIMIT, ADMIN_DAILY_LIMIT });
+      const hasQuota = !quota.configError && quota.allowed;
+
+      const result = await answerQuestion(question, { hasQuota });
+      if (result.shouldConsumeQuota) {
+        await consumeQuota(quota.docId, quota.current);
+      }
+      res.status(200).json({
+        answer: result.answer,
+        source: result.source, // rules | knowledge-base | ai | knowledge-base-fallback | none
+        suggestions: result.suggestions || [],
+      });
       return;
     }
 
