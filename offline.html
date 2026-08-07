@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>مفيش اتصال بالإنترنت — NextStep AI</title>
+<meta name="theme-color" content="#0A2C35">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    background: #F7F5F0; font-family: 'Cairo', system-ui, sans-serif; padding: 24px;
+  }
+  .card {
+    background: #fff; border-radius: 18px; padding: 32px 24px; max-width: 420px; width: 100%;
+    text-align: center; box-shadow: 0 8px 24px rgba(10,44,53,0.08);
+  }
+  .icon { font-size: 48px; margin-bottom: 14px; }
+  h1 { font-size: 19px; color: #0A2C35; margin: 0 0 10px; }
+  p { font-size: 14px; color: #5C7278; line-height: 1.7; margin: 0 0 22px; }
+  .btn {
+    display: block; width: 100%; padding: 13px; border: none; border-radius: 10px;
+    font-weight: 700; font-size: 14.5px; cursor: pointer; margin-bottom: 10px; font-family: inherit;
+  }
+  .btn-primary { background: #164B58; color: #fff; }
+  .btn-ghost { background: #F1EEE7; color: #0A2C35; }
+  #cachedList { text-align: right; margin-top: 18px; font-size: 12.5px; color: #5C7278; }
+  #cachedList a { display: block; padding: 8px 0; color: #164B58; text-decoration: none; border-bottom: 1px solid #F1EEE7; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">📡</div>
+    <h1>مفيش اتصال بالإنترنت دلوقتي</h1>
+    <p>الصفحة اللي بتحاول تفتحها مش محفوظة عندك أوفلاين. اتأكد من اتصال النت وجرّب تاني، أو ارجع للصفحة الرئيسية لو متاحة من الكاش.</p>
+    <button class="btn btn-primary" onclick="location.reload()">🔄 إعادة المحاولة</button>
+    <button class="btn btn-ghost" onclick="location.href='./'">🏠 الرجوع للرئيسية</button>
+    <div id="cachedList"></div>
+  </div>
+<script>
+  // بنعرض قايمة بالصفحات المحفوظة عندك أوفلاين فعليًا (لو موجودة) — مش
+  // ادّعاء عام، ده بيقرا كاش الـService Worker الحقيقي.
+  if ('caches' in window) {
+    caches.open('nextstep-ai-v4').then(function(cache){
+      return cache.keys();
+    }).then(function(requests){
+      var pages = requests
+        .map(function(r){ return r.url; })
+        .filter(function(u){ return u.endsWith('/') || u.includes('index.html'); });
+      if (pages.length) {
+        var box = document.getElementById('cachedList');
+        box.innerHTML = '<div style="font-weight:700;margin-bottom:6px;">صفحات محفوظة عندك:</div>' +
+          pages.map(function(p){ return '<a href="'+p+'">'+p+'</a>'; }).join('');
+      }
+    }).catch(function(){});
+  }
+</script>
+</body>
+</html>
