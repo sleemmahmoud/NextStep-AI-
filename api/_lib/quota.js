@@ -24,7 +24,16 @@ async function checkQuota({ uid, email, ADMIN_EMAILS, DAILY_LIMIT, ADMIN_DAILY_L
 async function consumeQuota(docId, current) {
   const admin = getFirebaseAdmin();
   const db = admin.firestore();
-  await db.collection("aiUsage").doc(docId).set({ count: current + 1, updatedAt: Date.now() }, { merge: true });
+  const { FieldValue } = require("firebase-admin/firestore");
+  // ⚠️ إصلاح أمني (Sprint 7): كانت set({count: current+1}) — ده read-then-write
+  // مش عملية ذرية، فطلبين متزامنين (تابين مفتوحين أو سكريبت بيضرب بسرعة)
+  // ممكن يقروا نفس current القديم ويكتبوا نفس القيمة، والمستخدم يتخطى
+  // الحد اليومي فعليًا. FieldValue.increment() عملية ذرية حقيقية على
+  // مستوى Firestore نفسه، بتتعامل صح حتى مع آلاف الطلبات المتزامنة.
+  await db.collection("aiUsage").doc(docId).set(
+    { count: FieldValue.increment(1), updatedAt: Date.now() },
+    { merge: true }
+  );
 }
 
 module.exports = { checkQuota, consumeQuota };
